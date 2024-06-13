@@ -1,53 +1,19 @@
-import lighthouse from "lighthouse";
-import puppeteer from "puppeteer";
-import { readFileSync, writeFileSync } from "fs";
+import { readFileSync } from "fs";
 import { URL } from "url";
-
-// Read Website from file
-const readWebsiteFromFile = (pathFile) => {
-    try {
-        const textFile = readFileSync(pathFile, "utf-8");
-        const url = textFile
-            .split("\n")
-            .map((line) => line.trim())
-            .filter((url) => url);
-        console.log(url);
-        return url;
-    } catch (error) {
-        console.error("Failed to read file!");
-    }
-};
+import {
+    runLighthouseToJson,
+    runLighthouseToHtml,
+} from "./lib/runLighthouse.js";
+import { readWebsiteFromFile } from "./lib/readFile.js";
+import * as xlsx from "xlsx";
 
 // Check valid URL
 const isValid = (stringUrl) => {
     try {
-        new URL(stringUrl)
-        return true
+        new URL(stringUrl);
+        return true;
     } catch (error) {
         return false;
-    }
-}
-
-// Run Lighthouse tool
-const runLighthouse = async (website, outputPath) => {
-    const browser = await puppeteer.launch({ headless: true, });
-    try {
-        const result = await lighthouse(website, {
-            port: new URL(browser.wsEndpoint()).port,
-            output: "html",
-            logLevel: "info",
-        });
-
-        if (!result || !result.report) {
-            throw new Error(`Report lighthouse not valid for url ${website}`);
-        }
-
-        writeFileSync(outputPath, result.report, "utf-8");
-        console.log(`Report for website ${website} saved in ${outputPath}`);
-    } catch (error) {
-        console.error(`Failed to create report for ${website}`, error);
-    } finally {
-        await browser.close();
     }
 };
 
@@ -58,18 +24,54 @@ const main = async () => {
         return;
     }
 
+    const result = [];
+
     for (let website of websites) {
-        if(!isValid(website)) {
-            console.log(`URL is not valid!`)
+        if (!isValid(website)) {
+            console.log(`URL is not valid!`);
             continue;
         }
         console.log(`Proceed ${website}`);
-        console.log(3, website)
-        const outputDir = `./reports/${website
-            .replace(/https?:\/\//, "")
-            .replace(/\//g, "_")}.html`;
-        await runLighthouse(website, outputDir);
+
+        // const outputDir = `./reports/${website
+        //     .replace(/https?:\/\//, "")
+        //     .replace(/\//g, "_")}.html`;
+        // await runLighthouseToHtml(website, outputDir);
+
+        const report = await runLighthouseToJson(website);
+        // console.log(report);
+        const perf = report.categories.performance.score * 100;
+        const acce = report.categories.accessibility.score * 100;
+        const bp = report.categories["best-practices"].score * 100;
+        const seo = report.categories.seo.score * 100;
+        if (report) {
+            result.push({
+                url: website,
+                performance: perf,
+                accessibility: acce,
+                bestPractices: bp,
+                seo: seo,
+            });
+        }
+
+        // if (report) {
+        //     result.push({
+        //         url: website,
+        //         performance: report.categories.performance.score,
+        //         accessibility: report.categories.accessibility.score,
+        //         bestPractices: report.categories["best-practices"].score,
+        //         seo: report.categories.seo.score
+        //     });
+        // }
     }
+    // console.log(result);
+
+    // Write report to File Excel
+    const workbook = xlsx.utils.book_new();
+    const worksheet = xlsx.utils.json_to_sheet(result);
+    xlsx.utils.book_append_sheet(workbook, worksheet, "Lighthouse Reports");
+    xlsx.writeFile(workbook, "./reports/lighthouse_reports.xlsx");
+    console.log("Report saved in lighthouse_reports.xlsx file!");
 };
 
 main();
